@@ -21,31 +21,14 @@ package org.phenotips.authorization.remote;
 
 import org.phenotips.data.Patient;
 import org.phenotips.data.PatientRepository;
-
-import org.xwiki.model.reference.DocumentReferenceResolver;
 import org.xwiki.security.authorization.Right;
 import org.xwiki.security.authorization.internal.XWikiCachingRightService;
-
-import java.io.IOException;
-
-import org.apache.commons.httpclient.HttpStatus;
-import org.apache.http.client.ClientProtocolException;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.ContentType;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.xpn.xwiki.XWikiContext;
 import com.xpn.xwiki.XWikiException;
 import com.xpn.xwiki.doc.XWikiDocument;
 import com.xpn.xwiki.user.api.XWikiRightService;
 import com.xpn.xwiki.web.Utils;
-
-import net.sf.json.JSONObject;
 
 /**
  * Rights checking class that respects the access level granted by a remote server. PhenoTips sends a JSON payload,
@@ -75,24 +58,6 @@ import net.sf.json.JSONObject;
  */
 public class RemoteValidationRightServiceImpl extends XWikiCachingRightService implements XWikiRightService
 {
-    /** Logging helper object. */
-    private static final Logger LOGGER = LoggerFactory.getLogger(RemoteValidationRightServiceImpl.class);
-
-    private static final byte GRANTED = 1;
-
-    private static final byte DENIED = 2;
-
-    private static final byte UNKNWON = 0;
-
-    private static final byte ERROR = -1;
-
-    @SuppressWarnings("deprecation")
-    private DocumentReferenceResolver<String> usernameReferenceResolver = Utils.getComponent(
-        DocumentReferenceResolver.TYPE_STRING, "currentmixed");
-
-    /** Performs HTTP requests to the remote authorization server. */
-    private CloseableHttpClient client = HttpClients.createSystem();
-
     @Override
     public boolean checkAccess(String action, XWikiDocument doc, XWikiContext context) throws XWikiException
     {
@@ -101,13 +66,11 @@ public class RemoteValidationRightServiceImpl extends XWikiCachingRightService i
             @SuppressWarnings("deprecation")
             PatientRepository repo = Utils.getComponent(PatientRepository.class);
             Patient patient = repo.getPatientById(doc.getDocumentReference().toString());
-            byte decision =
-                remoteCheck(requestedRight.getName(), context.getUserReference().getName(), patient.getId(),
-                    patient.getExternalId());
-            if (decision == GRANTED) {
-                return true;
-            } else if (decision == DENIED) {
-                return false;
+            @SuppressWarnings("deprecation")
+            AuthorizationService service = Utils.getComponent(AuthorizationService.class);
+            Boolean decision = service.hasAccess(requestedRight.getName(), patient);
+            if (decision != null) {
+                return decision.booleanValue();
             }
         }
 
@@ -123,47 +86,14 @@ public class RemoteValidationRightServiceImpl extends XWikiCachingRightService i
         Patient patient = repo.getPatientById(docname);
         if (patient != null) {
             Right requestedRight = actionToRight(right);
-            byte decision =
-                remoteCheck(requestedRight.getName(), this.usernameReferenceResolver.resolve(username).getName(),
-                    patient.getId(), patient.getExternalId());
-            if (decision == GRANTED) {
-                return true;
-            } else if (decision == DENIED) {
-                return false;
+            @SuppressWarnings("deprecation")
+            AuthorizationService service = Utils.getComponent(AuthorizationService.class);
+            Boolean decision = service.hasAccess(requestedRight.getName(), username, patient);
+            if (decision != null) {
+                return decision.booleanValue();
             }
         }
 
         return super.hasAccessLevel(right, username, docname, context);
-    }
-
-    private byte remoteCheck(String right, String username, String internalId, String externalId)
-    {
-        // FIXME Add a cache
-        // FIXME Get the URL from a configuration
-        HttpPost method = new HttpPost("http://localhost:8080/bin/CheckAuth");
-
-        JSONObject payload = new JSONObject();
-        payload.element("access", right);
-        payload.element("username", username);
-        payload.element("patient-id", internalId);
-        payload.element("patient-eid", externalId);
-        method.setEntity(new StringEntity(payload.toString(), ContentType.APPLICATION_JSON));
-
-        try {
-            CloseableHttpResponse response = this.client.execute(method);
-            // FIXME Cache the response, take into account the cache settings sent by the server
-            if (response.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
-                return GRANTED;
-            } else if (response.getStatusLine().getStatusCode() == HttpStatus.SC_FORBIDDEN) {
-                return DENIED;
-            }
-        } catch (ClientProtocolException ex) {
-            LOGGER.warn("Bad authorization server, invalid HTTP communication: {}", ex.getMessage());
-            return ERROR;
-        } catch (IOException ex) {
-            LOGGER.warn("Failed to communicate with the authorization server: {}", ex.getMessage(), ex);
-            return ERROR;
-        }
-        return UNKNWON;
     }
 }
