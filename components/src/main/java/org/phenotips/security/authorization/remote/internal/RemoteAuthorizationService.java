@@ -128,11 +128,13 @@ public class RemoteAuthorizationService implements AuthorizationService, Initial
         String cacheKey = MessageFormat.format("{0}::{1}::{2}", requestedRight, username, internalId);
         Boolean cachedAuthorization = this.cache.get(cacheKey);
         if (cachedAuthorization != null) {
-            return cachedAuthorization.booleanValue();
+            return cachedAuthorization;
         }
         byte decision = remoteCheck(requestedRight, username, internalId, externalId);
         if (decision == GRANTED) {
-            return true;
+            return Boolean.TRUE;
+        } else if (decision == DENIED) {
+            return Boolean.FALSE;
         }
         return null;
     }
