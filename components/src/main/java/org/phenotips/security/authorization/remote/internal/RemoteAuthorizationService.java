@@ -125,7 +125,7 @@ public class RemoteAuthorizationService implements AuthorizationService, Initial
         String username = user.getUsername();
         String internalId = patient.getId();
         String externalId = patient.getExternalId();
-        String cacheKey = MessageFormat.format("{}::{}::{}", requestedRight, username, internalId);
+        String cacheKey = MessageFormat.format("{0}::{1}::{2}", requestedRight, username, internalId);
         Boolean cachedAuthorization = this.cache.get(cacheKey);
         if (cachedAuthorization != null) {
             return cachedAuthorization.booleanValue();
