@@ -118,6 +118,9 @@ public class RemoteAuthorizationService implements AuthorizationService, Initial
     @Override
     public Boolean hasAccess(Right access, User user, Patient patient)
     {
+        if (user == null || patient == null) {
+            return null;
+        }
         String requestedRight = access.getName();
         String username = user.getUsername();
         String internalId = patient.getId();
