@@ -17,7 +17,18 @@
  * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
-package org.phenotips.authorization.remote.internal;
+package org.phenotips.security.authorization.remote.internal;
+
+import org.phenotips.data.Patient;
+import org.phenotips.security.authorization.AuthorizationService;
+
+import org.xwiki.cache.CacheFactory;
+import org.xwiki.cache.infinispan.internal.InfinispanCacheFactory;
+import org.xwiki.component.annotation.Component;
+import org.xwiki.component.phase.Initializable;
+import org.xwiki.component.phase.InitializationException;
+import org.xwiki.security.authorization.Right;
+import org.xwiki.users.User;
 
 import java.io.IOException;
 import java.text.MessageFormat;
@@ -27,8 +38,6 @@ import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
-
-import net.sf.json.JSONObject;
 
 import org.apache.commons.httpclient.HttpStatus;
 import org.apache.commons.lang3.StringUtils;
@@ -44,21 +53,36 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.infinispan.Cache;
-import org.phenotips.authorization.remote.AuthorizationService;
-import org.phenotips.data.Patient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.xwiki.cache.CacheFactory;
-import org.xwiki.cache.infinispan.internal.InfinispanCacheFactory;
-import org.xwiki.component.annotation.Component;
-import org.xwiki.component.phase.Initializable;
-import org.xwiki.component.phase.InitializationException;
-import org.xwiki.security.authorization.internal.XWikiCachingRightService;
-import org.xwiki.users.User;
-import org.xwiki.users.UserManager;
+
+import net.sf.json.JSONObject;
 
 /**
+ * Rights checking class that respects the access level granted by a remote server. PhenoTips sends a JSON payload,
+ * containing the following information: <code>
+ *   {
+ *     "username": "someUserName",
+ *     "access" : "view",
+ *     "patient-id" : "P0123456",
+ *     "patient-eid" : "PATIENT_1234"
+ *   }
+ * </code>
+ * <p>
+ * The server must reply with a {@code 200 OK} response if the requested access is granted, or {@code 403 Forbidden} if
+ * access is denied. Any other response is considered invalid, and the authorization check falls back to the default
+ * PhenoTips rights checking, which uses locally defined ACLs.
+ * </p>
+ * <p>
+ * If the response contains a {@code Cache-Control} or {@code Expires} header, then this authorization decision is going
+ * to be cached according to those headers. If a {@code Cache-Control: max-age} or {@code Expires} value is sent, the
+ * response is going to be cached for that amount of time. By default, if no cache headers are received, the right is
+ * going to be cached for 1 minute. To disable caching, send a {@code no-cache}, {@code no-store}, or 0 {@code max-age}
+ * {@code Cache-Control} header, or an {@code Expires} date in the past.
+ * </p>
+ *
  * @version $Id$
+ * @since 1.0M1
  */
 @Component
 @Named("remote-json")
@@ -83,9 +107,6 @@ public class RemoteAuthorizationService implements AuthorizationService, Initial
     @Named("infinispan")
     private CacheFactory factory;
 
-    @Inject
-    private UserManager userManager;
-
     private Cache<String, Boolean> cache;
 
     @Override
@@ -95,26 +116,14 @@ public class RemoteAuthorizationService implements AuthorizationService, Initial
     }
 
     @Override
-    public Boolean hasAccess(String access, Patient patient)
+    public Boolean hasAccess(Right access, User user, Patient patient)
     {
-        return hasAccess(access, userManager.getCurrentUser(), patient);
-    }
-
-    @Override
-    public Boolean hasAccess(String access, String username, Patient patient)
-    {
-        return hasAccess(access, userManager.getUser(username, true), patient);
-    }
-
-    @Override
-    public Boolean hasAccess(String access, User user, Patient patient)
-    {
-        String requestedRight = XWikiCachingRightService.actionToRight(access).getName();
+        String requestedRight = access.getName();
         String username = user.getUsername();
         String internalId = patient.getId();
         String externalId = patient.getExternalId();
         String cacheKey = MessageFormat.format("{}::{}::{}", requestedRight, username, internalId);
-        Boolean cachedAuthorization = cache.get(cacheKey);
+        Boolean cachedAuthorization = this.cache.get(cacheKey);
         if (cachedAuthorization != null) {
             return cachedAuthorization.booleanValue();
         }
@@ -128,7 +137,14 @@ public class RemoteAuthorizationService implements AuthorizationService, Initial
     @Override
     public void initialize() throws InitializationException
     {
-        cache = ((InfinispanCacheFactory) factory).getCacheManager().getCache("RemoteAuthorizationService", true);
+        this.cache =
+            ((InfinispanCacheFactory) this.factory).getCacheManager().getCache("RemoteAuthorizationService", true);
+    }
+
+    @Override
+    public int compareTo(AuthorizationService o)
+    {
+        return (o == null) ? -1 : o.getPriority() - this.getPriority();
     }
 
     private byte remoteCheck(String right, String username, String internalId, String externalId)
@@ -190,7 +206,7 @@ public class RemoteAuthorizationService implements AuthorizationService, Initial
             for (HeaderElement cacheSetting : cacheHeader.getElements()) {
                 if (StringUtils.equals("no-cache", cacheSetting.getName())
                     || StringUtils.equals("no-store", cacheSetting.getName())) {
-                    cache.remove(cacheKey);
+                    this.cache.remove(cacheKey);
                     return;
                 } else if (StringUtils.equals("max-age", cacheSetting.getName())) {
                     validity = Long.parseLong(cacheSetting.getValue());
@@ -199,9 +215,9 @@ public class RemoteAuthorizationService implements AuthorizationService, Initial
         }
 
         if (validity > 0) {
-            cache.put(cacheKey, value, validity, TimeUnit.SECONDS);
+            this.cache.put(cacheKey, value, validity, TimeUnit.SECONDS);
         } else if (validity != Long.MIN_VALUE) {
-            cache.remove(cacheKey);
+            this.cache.remove(cacheKey);
         }
     }
 }
