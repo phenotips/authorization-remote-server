@@ -20,13 +20,15 @@
 package org.phenotips.security.authorization.remote.internal;
 
 import org.phenotips.data.Patient;
-import org.phenotips.security.authorization.AuthorizationService;
+import org.phenotips.data.PatientRepository;
+import org.phenotips.security.authorization.AuthorizationModule;
 
 import org.xwiki.cache.CacheFactory;
 import org.xwiki.cache.infinispan.internal.InfinispanCacheFactory;
 import org.xwiki.component.annotation.Component;
 import org.xwiki.component.phase.Initializable;
 import org.xwiki.component.phase.InitializationException;
+import org.xwiki.model.reference.DocumentReference;
 import org.xwiki.security.authorization.Right;
 import org.xwiki.users.User;
 
@@ -87,7 +89,7 @@ import net.sf.json.JSONObject;
 @Component
 @Named("remote-json")
 @Singleton
-public class RemoteAuthorizationService implements AuthorizationService, Initializable
+public class RemoteAuthorizationService implements AuthorizationModule, Initializable
 {
     /** Logging helper object. */
     private static final Logger LOGGER = LoggerFactory.getLogger(RemoteAuthorizationService.class);
@@ -107,6 +109,9 @@ public class RemoteAuthorizationService implements AuthorizationService, Initial
     @Named("infinispan")
     private CacheFactory factory;
 
+    @Inject
+    private PatientRepository patientRepository;
+
     private Cache<String, Boolean> cache;
 
     @Override
@@ -116,8 +121,9 @@ public class RemoteAuthorizationService implements AuthorizationService, Initial
     }
 
     @Override
-    public Boolean hasAccess(Right access, User user, Patient patient)
+    public Boolean hasAccess(User user, Right access, DocumentReference document)
     {
+        Patient patient = this.patientRepository.getPatientById(document.toString());
         if (user == null || patient == null) {
             return null;
         }
@@ -144,12 +150,6 @@ public class RemoteAuthorizationService implements AuthorizationService, Initial
     {
         this.cache =
             ((InfinispanCacheFactory) this.factory).getCacheManager().getCache("RemoteAuthorizationService", true);
-    }
-
-    @Override
-    public int compareTo(AuthorizationService o)
-    {
-        return (o == null) ? -1 : o.getPriority() - this.getPriority();
     }
 
     private byte remoteCheck(String right, String username, String internalId, String externalId)
