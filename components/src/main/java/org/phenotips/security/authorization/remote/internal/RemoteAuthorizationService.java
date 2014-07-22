@@ -223,6 +223,8 @@ public class RemoteAuthorizationService implements AuthorizationModule, Initiali
             this.cache.put(cacheKey, value, validity, TimeUnit.SECONDS);
         } else if (validity != Long.MIN_VALUE) {
             this.cache.remove(cacheKey);
+        } else {
+            this.cache.put(cacheKey, value, 60, TimeUnit.SECONDS);
         }
     }
 }
