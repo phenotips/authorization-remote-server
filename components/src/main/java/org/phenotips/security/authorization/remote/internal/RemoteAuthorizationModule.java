@@ -23,19 +23,23 @@ import org.phenotips.data.Patient;
 import org.phenotips.data.PatientRepository;
 import org.phenotips.security.authorization.AuthorizationModule;
 
+import org.xwiki.cache.Cache;
+import org.xwiki.cache.CacheException;
 import org.xwiki.cache.CacheFactory;
-import org.xwiki.cache.infinispan.internal.InfinispanCacheFactory;
+import org.xwiki.cache.config.CacheConfiguration;
+import org.xwiki.cache.config.LRUCacheConfiguration;
 import org.xwiki.component.annotation.Component;
 import org.xwiki.component.phase.Initializable;
 import org.xwiki.component.phase.InitializationException;
+import org.xwiki.configuration.ConfigurationSource;
 import org.xwiki.model.reference.DocumentReference;
 import org.xwiki.security.authorization.Right;
 import org.xwiki.users.User;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.text.MessageFormat;
-import java.util.Date;
-import java.util.concurrent.TimeUnit;
 
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -49,12 +53,10 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
-import org.apache.http.client.utils.DateUtils;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
-import org.infinispan.Cache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,14 +75,16 @@ import net.sf.json.JSONObject;
  * <p>
  * The server must reply with a {@code 200 OK} response if the requested access is granted, or {@code 403 Forbidden} if
  * access is denied. Any other response is considered invalid, and the authorization check falls back to the default
- * PhenoTips rights checking, which uses locally defined ACLs.
+ * PhenoTips rights checking.
  * </p>
  * <p>
- * If the response contains a {@code Cache-Control} or {@code Expires} header, then this authorization decision is going
- * to be cached according to those headers. If a {@code Cache-Control: max-age} or {@code Expires} value is sent, the
- * response is going to be cached for that amount of time. By default, if no cache headers are received, the right is
- * going to be cached for 1 minute. To disable caching, send a {@code no-cache}, {@code no-store}, or 0 {@code max-age}
- * {@code Cache-Control} header, or an {@code Expires} date in the past.
+ * If the response contains a {@code Cache-Control}, then this authorization decision is going to be cached according to
+ * that headers. By default, if no cache headers are received, the right is going to be cached for 1 minute. To disable
+ * caching, send a {@code no-cache}, {@code no-store} cache directive. If the response is to be cached, the cache
+ * duration cannot be configured and is always one minute.
+ * </p>
+ * <p>
+ * This module has priority 500.
  * </p>
  *
  * @version $Id$
@@ -89,10 +93,12 @@ import net.sf.json.JSONObject;
 @Component
 @Named("remote-json")
 @Singleton
-public class RemoteAuthorizationService implements AuthorizationModule, Initializable
+public class RemoteAuthorizationModule implements AuthorizationModule, Initializable
 {
+    public static final String CONFIGURATION_KEY = "phenotips.security.authorization.remote.url";
+
     /** Logging helper object. */
-    private static final Logger LOGGER = LoggerFactory.getLogger(RemoteAuthorizationService.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(RemoteAuthorizationModule.class);
 
     private static final byte GRANTED = 1;
 
@@ -110,28 +116,37 @@ public class RemoteAuthorizationService implements AuthorizationModule, Initiali
     private CacheFactory factory;
 
     @Inject
+    @Named("restricted")
+    private ConfigurationSource configuration;
+
+    @Inject
     private PatientRepository patientRepository;
 
-    private Cache<String, Boolean> cache;
+    private Cache<Boolean> cache;
+
+    private URI remoteServiceURL;
 
     @Override
     public int getPriority()
     {
-        return 300;
+        return 500;
     }
 
     @Override
     public Boolean hasAccess(User user, Right access, DocumentReference document)
     {
+        if (user == null || document == null) {
+            return null;
+        }
         Patient patient = this.patientRepository.getPatientById(document.toString());
-        if (user == null || patient == null) {
+        if (patient == null) {
             return null;
         }
         String requestedRight = access.getName();
         String username = user.getUsername();
         String internalId = patient.getId();
         String externalId = patient.getExternalId();
-        String cacheKey = MessageFormat.format("{0}::{1}::{2}", requestedRight, username, internalId);
+        String cacheKey = getCacheKey(username, internalId, internalId);
         Boolean cachedAuthorization = this.cache.get(cacheKey);
         if (cachedAuthorization != null) {
             return cachedAuthorization;
@@ -148,14 +163,28 @@ public class RemoteAuthorizationService implements AuthorizationModule, Initiali
     @Override
     public void initialize() throws InitializationException
     {
-        this.cache =
-            ((InfinispanCacheFactory) this.factory).getCacheManager().getCache("RemoteAuthorizationService", true);
+        String configuredURL = this.configuration.getProperty(CONFIGURATION_KEY);
+        if (StringUtils.isBlank(configuredURL)) {
+            throw new InitializationException(this.getClass().getSimpleName()
+                + " requires a valid URL to be configured in xwiki.properties under the " + CONFIGURATION_KEY + " key");
+        }
+        try {
+            this.remoteServiceURL = new URI(configuredURL);
+        } catch (URISyntaxException ex) {
+            throw new InitializationException("Invalid URL configured for " + this.getClass().getSimpleName() + ": "
+                + configuredURL, ex);
+        }
+        CacheConfiguration config = new LRUCacheConfiguration("RemoteAuthorizationService", 1000, 60);
+        try {
+            this.cache = this.factory.newCache(config);
+        } catch (CacheException ex) {
+            throw new InitializationException("Failed to create authorization cache: " + ex.getMessage(), ex);
+        }
     }
 
     private byte remoteCheck(String right, String username, String internalId, String externalId)
     {
-        // FIXME Get the URL from a configuration
-        HttpPost method = new HttpPost("http://localhost:8080/bin/CheckAuth");
+        HttpPost method = new HttpPost(this.remoteServiceURL);
 
         JSONObject payload = new JSONObject();
         payload.element("access", right);
@@ -167,12 +196,10 @@ public class RemoteAuthorizationService implements AuthorizationModule, Initiali
         try {
             response = this.client.execute(method);
             if (response.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
-                // FIXME cacheKey missing
-                cacheResponse("", Boolean.TRUE, response);
+                cacheResponse(getCacheKey(username, right, internalId), Boolean.TRUE, response);
                 return GRANTED;
             } else if (response.getStatusLine().getStatusCode() == HttpStatus.SC_FORBIDDEN) {
-                // FIXME cacheKey missing
-                cacheResponse("", Boolean.FALSE, response);
+                cacheResponse(getCacheKey(username, right, internalId), Boolean.FALSE, response);
                 return DENIED;
             }
         } catch (ClientProtocolException ex) {
@@ -196,16 +223,6 @@ public class RemoteAuthorizationService implements AuthorizationModule, Initiali
 
     private void cacheResponse(String cacheKey, Boolean value, HttpResponse response)
     {
-        long validity = Long.MIN_VALUE;
-
-        // First take into account the Expires header
-        Header expiresHeader = response.getLastHeader("Expires");
-        if (expiresHeader != null) {
-            Date expires = DateUtils.parseDate(expiresHeader.getValue());
-            validity = (expires.getTime() - System.currentTimeMillis()) / 1000;
-        }
-
-        // RFC 2616 states that the Cache-Control header takes precedence over Expires
         Header cacheHeader = response.getLastHeader("Cache-Control");
         if (cacheHeader != null) {
             for (HeaderElement cacheSetting : cacheHeader.getElements()) {
@@ -213,18 +230,15 @@ public class RemoteAuthorizationService implements AuthorizationModule, Initiali
                     || StringUtils.equals("no-store", cacheSetting.getName())) {
                     this.cache.remove(cacheKey);
                     return;
-                } else if (StringUtils.equals("max-age", cacheSetting.getName())) {
-                    validity = Long.parseLong(cacheSetting.getValue());
                 }
             }
         }
 
-        if (validity > 0) {
-            this.cache.put(cacheKey, value, validity, TimeUnit.SECONDS);
-        } else if (validity != Long.MIN_VALUE) {
-            this.cache.remove(cacheKey);
-        } else {
-            this.cache.put(cacheKey, value, 60, TimeUnit.SECONDS);
-        }
+        this.cache.set(cacheKey, value);
+    }
+
+    private String getCacheKey(String username, String right, String patientId)
+    {
+        return MessageFormat.format("{0}::{1}::{2}", right, username, patientId);
     }
 }
