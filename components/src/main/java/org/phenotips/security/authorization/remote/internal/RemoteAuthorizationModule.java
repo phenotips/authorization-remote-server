@@ -60,15 +60,27 @@ import org.slf4j.Logger;
 import net.sf.json.JSONObject;
 
 /**
- * Rights checking class that respects the access level granted by a remote server. PhenoTips sends a JSON payload,
- * containing the following information: <code>
+ * Rights checking class that respects the access level granted by a remote server.
+ * <p>
+ * The URL to access must be configured in {@code WEB-INF/xwiki.properties} under the
+ * {@code phenotips.security.authorization.remote.url} key, for example:
+ * </p>
+ *
+ * <pre>
+ * phenotips.security.authorization.remote.url=http://emr.hospital.org/services/authorizationCheck
+ * </pre>
+ * <p>
+ * PhenoTips sends a JSON payload, containing the following information:
+ * </p>
+ *
+ * <pre>
  *   {
  *     "username": "someUserName",
  *     "access" : "view",
  *     "patient-id" : "P0123456",
  *     "patient-eid" : "PATIENT_1234"
  *   }
- * </code>
+ * </pre>
  * <p>
  * The server must reply with a {@code 200 OK} response if the requested access is granted, or {@code 403 Forbidden} if
  * access is denied. Any other response is considered invalid, and the authorization check falls back to the default
