@@ -33,7 +33,6 @@ import org.xwiki.test.mockito.MockitoComponentMockingRule;
 import org.xwiki.users.User;
 
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.mockito.Mock;
@@ -74,16 +73,15 @@ public class RemoteAuthorizationModuleTest
         }
     }
 
-    @Ignore
     @Test(expected = InitializationException.class)
     public void invalidConfigurationThrowsInitializationException() throws Throwable
     {
         ConfigurationSource configuration = this.mocker.getInstance(ConfigurationSource.class, "restricted");
-        when(configuration.getProperty(RemoteAuthorizationModule.CONFIGURATION_KEY)).thenReturn("NotAnURL");
+        when(configuration.getProperty(RemoteAuthorizationModule.CONFIGURATION_KEY)).thenReturn(":NotAnURL");
         try {
             this.mocker.getComponentUnderTest().hasAccess(this.user, this.right, this.doc);
         } catch (ComponentLookupException ex) {
-            Assert.assertEquals("Invalid URL configured for RemoteAuthorizationModule: NotAnURL",
+            Assert.assertEquals("Invalid URL configured for RemoteAuthorizationModule: :NotAnURL",
                 ex.getCause().getMessage());
             throw ex.getCause();
         }
