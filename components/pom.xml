@@ -82,8 +82,9 @@
   </dependencies>
 
   <properties>
-    <!-- FIXME: tests coming soon -->
-    <coverage.instructionRatio>0.00</coverage.instructionRatio>
+    <!-- HttpClient brings in a lot of classes -->
     <checkstyle.suppressions.location>${basedir}/src/checkstyle/checkstyle-suppressions.xml</checkstyle.suppressions.location>
+    <!-- Impossible to test a finally branch that can never happen -->
+    <coverage.instructionRatio>0.95</coverage.instructionRatio>
   </properties>
 </project>

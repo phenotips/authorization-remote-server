@@ -49,7 +49,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.http.Header;
 import org.apache.http.HeaderElement;
 import org.apache.http.HttpResponse;
-import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.ContentType;
@@ -135,7 +134,7 @@ public class RemoteAuthorizationModule implements AuthorizationModule, Initializ
     @Override
     public Boolean hasAccess(User user, Right access, DocumentReference document)
     {
-        if (user == null || document == null) {
+        if (user == null || access == null || document == null) {
             return null;
         }
         Patient patient = this.patientRepository.getPatientById(document.toString());
@@ -146,7 +145,7 @@ public class RemoteAuthorizationModule implements AuthorizationModule, Initializ
         String username = user.getUsername();
         String internalId = patient.getId();
         String externalId = patient.getExternalId();
-        String cacheKey = getCacheKey(username, internalId, internalId);
+        String cacheKey = getCacheKey(username, requestedRight, internalId);
         Boolean cachedAuthorization = this.cache.get(cacheKey);
         if (cachedAuthorization != null) {
             return cachedAuthorization;
@@ -193,7 +192,9 @@ public class RemoteAuthorizationModule implements AuthorizationModule, Initializ
         payload.element("patient-id", internalId);
         payload.element("patient-eid", externalId);
         method.setEntity(new StringEntity(payload.toString(), ContentType.APPLICATION_JSON));
-        try (CloseableHttpResponse response = this.client.execute(method)) {
+        CloseableHttpResponse response = null;
+        try {
+            response = this.client.execute(method);
             if (response.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
                 cacheResponse(getCacheKey(username, right, internalId), Boolean.TRUE, response);
                 return GRANTED;
@@ -201,12 +202,17 @@ public class RemoteAuthorizationModule implements AuthorizationModule, Initializ
                 cacheResponse(getCacheKey(username, right, internalId), Boolean.FALSE, response);
                 return DENIED;
             }
-        } catch (ClientProtocolException ex) {
-            this.logger.warn("Bad authorization server, invalid HTTP communication: {}", ex.getMessage());
-            return ERROR;
         } catch (IOException ex) {
             this.logger.warn("Failed to communicate with the authorization server: {}", ex.getMessage(), ex);
             return ERROR;
+        } finally {
+            if (response != null) {
+                try {
+                    response.close();
+                } catch (IOException e) {
+                    // Just ignore, this shouldn't happen
+                }
+            }
         }
         return UNKNWON;
     }
@@ -229,6 +235,6 @@ public class RemoteAuthorizationModule implements AuthorizationModule, Initializ
 
     private String getCacheKey(String username, String right, String patientId)
     {
-        return MessageFormat.format("{0}::{1}::{2}", right, username, patientId);
+        return MessageFormat.format("{0}::{1}::{2}", username, right, patientId);
     }
 }
