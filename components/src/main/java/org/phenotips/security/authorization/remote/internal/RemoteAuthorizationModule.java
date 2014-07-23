@@ -193,9 +193,7 @@ public class RemoteAuthorizationModule implements AuthorizationModule, Initializ
         payload.element("patient-id", internalId);
         payload.element("patient-eid", externalId);
         method.setEntity(new StringEntity(payload.toString(), ContentType.APPLICATION_JSON));
-        CloseableHttpResponse response = null;
-        try {
-            response = this.client.execute(method);
+        try (CloseableHttpResponse response = this.client.execute(method)) {
             if (response.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
                 cacheResponse(getCacheKey(username, right, internalId), Boolean.TRUE, response);
                 return GRANTED;
@@ -209,15 +207,6 @@ public class RemoteAuthorizationModule implements AuthorizationModule, Initializ
         } catch (IOException ex) {
             this.logger.warn("Failed to communicate with the authorization server: {}", ex.getMessage(), ex);
             return ERROR;
-        } finally {
-            if (response != null) {
-                try {
-                    response.close();
-                } catch (IOException ex) {
-                    // Doesn't matter
-                    this.logger.debug("Exception while closing HTTP response: {}", ex.getMessage());
-                }
-            }
         }
         return UNKNWON;
     }
