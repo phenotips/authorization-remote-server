@@ -75,10 +75,8 @@ import net.sf.json.JSONObject;
  * PhenoTips rights checking.
  * </p>
  * <p>
- * If the response contains a {@code Cache-Control}, then this authorization decision is going to be cached according to
- * that headers. By default, if no cache headers are received, the right is going to be cached for 1 minute. To disable
- * caching, send a {@code no-cache}, {@code no-store} cache directive. If the response is to be cached, the cache
- * duration cannot be configured and is always one minute.
+ * By default, if no cache headers are received, the right is going to be cached for 1 minute. To disable caching, send
+ * a {@code no-cache} or {@code no-store} {@code Cache-Control} header.
  * </p>
  * <p>
  * This module has priority 500.
