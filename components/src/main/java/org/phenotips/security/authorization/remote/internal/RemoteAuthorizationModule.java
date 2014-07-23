@@ -26,7 +26,6 @@ import org.phenotips.security.authorization.AuthorizationModule;
 import org.xwiki.cache.Cache;
 import org.xwiki.cache.CacheException;
 import org.xwiki.cache.CacheFactory;
-import org.xwiki.cache.config.CacheConfiguration;
 import org.xwiki.cache.config.LRUCacheConfiguration;
 import org.xwiki.component.annotation.Component;
 import org.xwiki.component.phase.Initializable;
@@ -58,7 +57,6 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import net.sf.json.JSONObject;
 
@@ -95,10 +93,8 @@ import net.sf.json.JSONObject;
 @Singleton
 public class RemoteAuthorizationModule implements AuthorizationModule, Initializable
 {
+    /** The xwiki.properties key used to configure the remote server URL where authorization requests will be sent. */
     public static final String CONFIGURATION_KEY = "phenotips.security.authorization.remote.url";
-
-    /** Logging helper object. */
-    private static final Logger LOGGER = LoggerFactory.getLogger(RemoteAuthorizationModule.class);
 
     private static final byte GRANTED = 1;
 
@@ -111,9 +107,15 @@ public class RemoteAuthorizationModule implements AuthorizationModule, Initializ
     /** Performs HTTP requests to the remote authorization server. */
     private final CloseableHttpClient client = HttpClients.createSystem();
 
+    /** Logging helper object. */
+    @Inject
+    private Logger logger;
+
     @Inject
     @Named("infinispan")
     private CacheFactory factory;
+
+    private Cache<Boolean> cache;
 
     @Inject
     @Named("restricted")
@@ -121,8 +123,6 @@ public class RemoteAuthorizationModule implements AuthorizationModule, Initializ
 
     @Inject
     private PatientRepository patientRepository;
-
-    private Cache<Boolean> cache;
 
     private URI remoteServiceURL;
 
@@ -151,13 +151,14 @@ public class RemoteAuthorizationModule implements AuthorizationModule, Initializ
         if (cachedAuthorization != null) {
             return cachedAuthorization;
         }
+        Boolean result = null;
         byte decision = remoteCheck(requestedRight, username, internalId, externalId);
         if (decision == GRANTED) {
-            return Boolean.TRUE;
+            result = Boolean.TRUE;
         } else if (decision == DENIED) {
-            return Boolean.FALSE;
+            result = Boolean.FALSE;
         }
-        return null;
+        return result;
     }
 
     @Override
@@ -174,7 +175,7 @@ public class RemoteAuthorizationModule implements AuthorizationModule, Initializ
             throw new InitializationException("Invalid URL configured for " + this.getClass().getSimpleName() + ": "
                 + configuredURL, ex);
         }
-        CacheConfiguration config = new LRUCacheConfiguration("RemoteAuthorizationService", 1000, 60);
+        LRUCacheConfiguration config = new LRUCacheConfiguration("RemoteAuthorizationService", 1000, 60);
         try {
             this.cache = this.factory.newCache(config);
         } catch (CacheException ex) {
@@ -203,10 +204,10 @@ public class RemoteAuthorizationModule implements AuthorizationModule, Initializ
                 return DENIED;
             }
         } catch (ClientProtocolException ex) {
-            LOGGER.warn("Bad authorization server, invalid HTTP communication: {}", ex.getMessage());
+            this.logger.warn("Bad authorization server, invalid HTTP communication: {}", ex.getMessage());
             return ERROR;
         } catch (IOException ex) {
-            LOGGER.warn("Failed to communicate with the authorization server: {}", ex.getMessage(), ex);
+            this.logger.warn("Failed to communicate with the authorization server: {}", ex.getMessage(), ex);
             return ERROR;
         } finally {
             if (response != null) {
@@ -214,7 +215,7 @@ public class RemoteAuthorizationModule implements AuthorizationModule, Initializ
                     response.close();
                 } catch (IOException ex) {
                     // Doesn't matter
-                    LOGGER.debug("Exception while closing HTTP response: {}", ex.getMessage());
+                    this.logger.debug("Exception while closing HTTP response: {}", ex.getMessage());
                 }
             }
         }
