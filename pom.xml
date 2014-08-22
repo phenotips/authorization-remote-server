@@ -27,9 +27,15 @@
     <artifactId>phenotips-components</artifactId>
     <version>1.0-SNAPSHOT</version>
   </parent>
+  <version>1.0-SNAPSHOT</version>
   <artifactId>phenotips-authorization-remote-server</artifactId>
   <packaging>pom</packaging>
   <name>PhenoTips - Integration - Remote authorization</name>
+
+  <properties>
+    <!-- FIXME: This should be defined in the PhenoTips POM, remove it from here when that happens. -->
+    <phenotips.version>${project.parent.version}</phenotips.version>
+  </properties>
 
   <modules>
     <module>components</module>
