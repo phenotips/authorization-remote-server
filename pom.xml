@@ -35,7 +35,7 @@
 
   <properties>
     <!-- FIXME: This should be defined in the PhenoTips POM, remove it from here when that happens. -->
-    <phenotips.version>${project.parent.version}</phenotips.version>
+    <phenotips.version>1.0-SNAPSHOT</phenotips.version>
   </properties>
 
   <modules>
