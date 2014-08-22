@@ -28,7 +28,7 @@
     <version>1.0-milestone-13</version>
     <relativePath />
   </parent>
-  <version>1.0-SNAPSHOT</version>
+  <version>1.0-milestone-1</version>
   <artifactId>phenotips-authorization-remote-server</artifactId>
   <packaging>pom</packaging>
   <name>PhenoTips - Integration - Remote authorization</name>
@@ -41,4 +41,8 @@
   <modules>
     <module>components</module>
   </modules>
+
+  <scm>
+    <tag>1.0-milestone-1</tag>
+  </scm>
 </project>
